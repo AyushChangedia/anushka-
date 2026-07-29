@@ -16,7 +16,7 @@ cp .env.example .env.local     # optional — see below
 npm run dev
 ```
 
-To access this project open this https://anushka-plum.vercel.app/
+To access this project open this link https://anushka-plum.vercel.app/
 
 **It works with zero configuration.** With no environment variables set, the app
 serves a hand-authored corpus of 10 complete recipes, ranked against whatever
