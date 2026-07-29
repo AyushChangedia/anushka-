@@ -1,0 +1,162 @@
+// Recipe Maker AI — database schema
+//
+// The app is designed to work with no database at all (recipes and saves live
+// in local storage for guests). Postgres adds cross-device sync, durable
+// shareable recipe URLs, and accounts on top of that.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Auth.js (NextAuth) models
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  // Null for OAuth-only users. Bcrypt hash for credentials sign-in.
+  passwordHash  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  savedRecipes  SavedRecipe[]
+  shoppingItems ShoppingItem[]
+  views         RecipeView[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Application models
+// ---------------------------------------------------------------------------
+
+/// A generated or seeded recipe, persisted so its detail page has a durable,
+/// shareable, server-rendered URL rather than existing only in a client store.
+model Recipe {
+  /// The slug used in the URL, e.g. "garlic-butter-fried-rice".
+  id        String   @id
+  title     String
+  cuisine   String
+  mealType  String
+  difficulty String
+  dietTags  String[]
+  /// prepMinutes + cookMinutes, denormalised so "under 30 mins" can be an
+  /// indexed query rather than a full scan.
+  totalMinutes Int
+  /// The full validated Recipe object. Kept as JSON because it is always read
+  /// and written whole, and normalising steps and ingredients into their own
+  /// tables would buy nothing but joins.
+  data      Json
+  /// True for the hand-authored corpus, which is exempt from cleanup.
+  isSample  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  savedBy SavedRecipe[]
+  views   RecipeView[]
+
+  @@index([totalMinutes])
+  @@index([cuisine])
+  @@index([createdAt])
+  @@map("recipes")
+}
+
+model SavedRecipe {
+  id        String   @id @default(cuid())
+  userId    String
+  recipeId  String
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, recipeId])
+  @@index([userId, createdAt])
+  @@map("saved_recipes")
+}
+
+/// Backs the "recently viewed" rail for signed-in users.
+model RecipeView {
+  id       String   @id @default(cuid())
+  userId   String
+  recipeId String
+  viewedAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, recipeId])
+  @@index([userId, viewedAt])
+  @@map("recipe_views")
+}
+
+model ShoppingItem {
+  id        String   @id @default(cuid())
+  userId    String
+  /// Free-text ingredient name, e.g. "Soy sauce".
+  name      String
+  checked   Boolean  @default(false)
+  /// Which recipe put it on the list, for the "from X" label. Not a foreign
+  /// key: the item should outlive the recipe it came from.
+  sourceRecipeTitle String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId, createdAt])
+  @@map("shopping_items")
+}
